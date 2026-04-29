@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Teorema de Dönsker</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Playfair+Display:ital,wght@1,700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a0f;
+    color: #e8e4d9;
+    font-family: 'Space Mono', monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(1.4rem, 3vw, 2.2rem);
+    font-style: italic;
+    letter-spacing: -0.02em;
+    color: #f0e8c8;
+    margin-bottom: 4px;
+    text-align: center;
+  }
+
+  .subtitle {
+    font-size: 0.65rem;
+    letter-spacing: 0.18em;
+    color: #6b6b7a;
+    text-transform: uppercase;
+    margin-bottom: 28px;
+    text-align: center;
+  }
+
+  .stage {
+    position: relative;
+    width: min(700px, 96vw);
+  }
+
+  canvas {
+    width: 100%;
+    border: 1px solid #2a2a3a;
+    border-radius: 4px;
+    background: #08080d;
+    display: block;
+  }
+
+  .info-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 14px;
+    padding: 12px 16px;
+    background: #111118;
+    border: 1px solid #1e1e2e;
+    border-radius: 4px;
+  }
+
+  .n-display {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .n-label {
+    font-size: 0.65rem;
+    color: #6b6b7a;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .n-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #c8a96e;
+    min-width: 80px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .formula {
+    font-size: 0.72rem;
+    color: #5a7a9a;
+    text-align: right;
+    line-height: 1.6;
+  }
+
+  .formula span {
+    color: #8ab4d4;
+  }
+
+  .progress-bar {
+    width: 100%;
+    height: 3px;
+    background: #1a1a2a;
+    border-radius: 2px;
+    margin-top: 12px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #c8a96e, #8ab4d4);
+    border-radius: 2px;
+    transition: width 0.1s linear;
+  }
+
+  .legend {
+    display: flex;
+    gap: 20px;
+    margin-top: 12px;
+    justify-content: center;
+  }
+
+  .leg-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.6rem;
+    color: #5a5a6a;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .leg-line {
+    width: 24px;
+    height: 2px;
+    border-radius: 1px;
+  }
+
+  .phase-label {
+    position: absolute;
+    top: 12px;
+    left: 14px;
+    font-size: 0.6rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #4a4a5a;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<h1>Teorema de Dönsker</h1>
+<p class="subtitle">Caminata aleatoria → Movimiento Browniano</p>
+
+<div class="stage">
+  <span class="phase-label" id="phaseLabel">Inicializando...</span>
+  <canvas id="c" width="700" height="320"></canvas>
+
+  <div class="info-bar">
+    <div class="n-display">
+      <span class="n-label">n =</span>
+      <span class="n-value" id="nVal">1</span>
+    </div>
+    <div class="formula">
+      <span>B<sup>(n)</sup><sub>t</sub></span> = (1/√n) · S<sub>⌊nt⌋</sub><br>
+      S<sub>n</sub> = X<sub>1</sub> + ··· + X<sub>n</sub>
+    </div>
+  </div>
+
+  <div class="progress-bar">
+    <div class="progress-fill" id="prog" style="width:0%"></div>
+  </div>
+
+  <div class="legend">
+    <div class="leg-item">
+      <div class="leg-line" style="background:#c8a96e"></div>
+      Caminata escalada B<sup>(n)</sup>
+    </div>
+    <div class="leg-item">
+      <div class="leg-line" style="background:#4a7aaa; opacity:0.7"></div>
+      Límite BM (referencia)
+    </div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const MID = H / 2;
+const MARGIN = 40;
+const PLOT_W = W - 2 * MARGIN;
+
+// Sequence of n values to animate through
+const nSequence = [1, 2, 3, 5, 8, 12, 20, 35, 60, 100, 200, 500, 1000];
+let seqIdx = 0;
+let animFrame = null;
+
+// Fixed seed RNG for reproducibility across n values
+function mulberry32(seed) {
+  return function() {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  }
+}
+
+function randn(rng) {
+  // Box-Muller
+  const u1 = rng(), u2 = rng();
+  return Math.sqrt(-2 * Math.log(u1 + 1e-10)) * Math.cos(2 * Math.PI * u2);
+}
+
+// Generate a Brownian motion path (reference) with fixed seed
+const bmSeed = 42;
+function generateBM(steps) {
+  const rng = mulberry32(bmSeed);
+  const path = [0];
+  for (let i = 1; i <= steps; i++) {
+    path.push(path[i-1] + randn(rng) / Math.sqrt(steps));
+  }
+  return path;
+}
+
+// Generate scaled random walk for given n
+function generateScaledWalk(n) {
+  const rng = mulberry32(bmSeed + 1);
+  // Generate n steps
+  const steps = [0];
+  for (let i = 1; i <= n; i++) {
+    steps.push(steps[i-1] + randn(rng));
+  }
+  // Scale: B^(n)_t = S_{floor(nt)} / sqrt(n), t in [0,1]
+  const PLOT_STEPS = Math.min(n, 700);
+  const path = [];
+  for (let px = 0; px <= PLOT_STEPS; px++) {
+    const t = px / PLOT_STEPS;
+    const idx = Math.min(Math.floor(t * n), n);
+    path.push(steps[idx] / Math.sqrt(n));
+  }
+  return path;
+}
+
+// Pre-generate reference BM
+const refBM = generateBM(700);
+
+function getMaxVal(path) {
+  return Math.max(...path.map(Math.abs), 1.5);
+}
+
+// Drawing state
+let currentPath = [];
+let refPath = [];
+let drawProgress = 0; // 0..1
+let targetN = 1;
+let animating = false;
+let holdTimer = null;
+
+function toY(val, scale) {
+  return MID - val * scale;
+}
+
+function drawBackground() {
+  ctx.clearRect(0, 0, W, H);
+
+  // Grid lines
+  ctx.strokeStyle = '#151520';
+  ctx.lineWidth = 1;
+  const gridVals = [-2, -1, 0, 1, 2];
+  const scale = (H / 2 - 20) / 2.5;
+  gridVals.forEach(v => {
+    const y = toY(v, scale);
+    if (y > 5 && y < H - 5) {
+      ctx.beginPath();
+      ctx.moveTo(MARGIN, y);
+      ctx.lineTo(W - MARGIN, y);
+      ctx.stroke();
+    }
+  });
+
+  // Axes
+  ctx.strokeStyle = '#252535';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(MARGIN, MID);
+  ctx.lineTo(W - MARGIN, MID);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(MARGIN, 15);
+  ctx.lineTo(MARGIN, H - 15);
+  ctx.stroke();
+
+  // Axis labels
+  ctx.fillStyle = '#3a3a4a';
+  ctx.font = '10px Space Mono';
+  ctx.fillText('0', MARGIN - 16, MID + 4);
+  ctx.fillText('1', W - MARGIN - 4, MID + 16);
+  ctx.fillText('t', W - MARGIN + 5, MID + 4);
+}
+
+function drawPath(path, progress, color, lineWidth, alpha) {
+  const scale = (H / 2 - 20) / 2.5;
+  const len = Math.floor(path.length * progress);
+  if (len < 2) return;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+
+  for (let i = 0; i < len; i++) {
+    const x = MARGIN + (i / (path.length - 1)) * PLOT_W;
+    const y = toY(path[i], scale);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function render(progress) {
+  drawBackground();
+
+  // Reference BM (faint)
+  drawPath(refBM, 1, '#2a4a6a', 1, 0.35);
+
+  // Current scaled walk
+  const color = targetN >= 100 ? '#7ab4e4' : '#c8a96e';
+  const lw = targetN >= 200 ? 1.2 : targetN >= 50 ? 1.5 : 2;
+  drawPath(currentPath, progress, color, lw, 0.95);
+
+  // Glowing endpoint
+  if (progress > 0.02) {
+    const scale = (H / 2 - 20) / 2.5;
+    const idx = Math.floor(currentPath.length * Math.min(progress, 0.9995));
+    const x = MARGIN + (idx / (currentPath.length - 1)) * PLOT_W;
+    const y = toY(currentPath[idx], scale);
+    ctx.save();
+    ctx.globalAlpha = 0.6;
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, 8);
+    grad.addColorStop(0, color);
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(x, y, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function animateDraw(n) {
+  targetN = n;
+  currentPath = generateScaledWalk(n);
+  drawProgress = 0;
+  animating = true;
+
+  document.getElementById('nVal').textContent = n.toLocaleString();
+  document.getElementById('prog').style.width = ((seqIdx / (nSequence.length - 1)) * 100) + '%';
+
+  const label = n < 5 ? 'Caminata discreta' : n < 30 ? 'Convergiendo...' : n < 150 ? 'Cada vez más suave...' : 'Límite Browniano';
+  document.getElementById('phaseLabel').textContent = label;
+
+  // Draw speed: faster for large n (more steps to show)
+  const totalFrames = Math.max(40, Math.min(120, n * 0.3));
+
+  let frame = 0;
+  function step() {
+    frame++;
+    drawProgress = Math.min(frame / totalFrames, 1);
+    render(drawProgress);
+
+    if (drawProgress < 1) {
+      animFrame = requestAnimationFrame(step);
+    } else {
+      // Hold then move to next n
+      holdTimer = setTimeout(() => {
+        seqIdx++;
+        if (seqIdx < nSequence.length) {
+          animateDraw(nSequence[seqIdx]);
+        } else {
+          // Loop
+          seqIdx = 0;
+          setTimeout(() => animateDraw(nSequence[0]), 1500);
+        }
+      }, seqIdx < 5 ? 1200 : 800);
+    }
+  }
+  animFrame = requestAnimationFrame(step);
+}
+
+// Start
+animateDraw(nSequence[0]);
+</script>
+</body>
+</html>
